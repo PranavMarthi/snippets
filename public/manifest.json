@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "Universal AI Multi-Context Selector",
+  "version": "2.0.13",
+  "description": "Multi-select snippets across AI chats and inject structured context.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://perplexity.ai/*",
+    "https://gemini.google.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "js": ["content/pageBridge.js"]
+    },
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://perplexity.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": ["content/core.js"],
+      "css": ["styles/sidebar.css", "styles/overlay.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background/serviceWorker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Universal Context Stack",
+    "default_popup": "popup/index.html"
+  },
+  "commands": {
+    "inject-all-context": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Inject all context into active editor"
+    },
+    "clear-context-stack": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Delete",
+        "mac": "Command+Shift+Delete"
+      },
+      "description": "Clear context stack"
+    },
+    "toggle-sidebar": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Toggle sidebar"
+    }
+  }
+}
