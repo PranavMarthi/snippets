@@ -6,6 +6,8 @@ import { GeminiAdapter } from "./adapters/geminiAdapter";
 import { GrokAdapter } from "./adapters/grokAdapter";
 import { DeepSeekAdapter } from "./adapters/deepseekAdapter";
 import { QwenAdapter } from "./adapters/qwenAdapter";
+import { KimiAdapter } from "./adapters/kimiAdapter";
+import { NovaAdapter } from "./adapters/novaAdapter";
 
 export class SiteAdapterManager {
   private adapters: AISiteAdapter[];
@@ -39,7 +41,9 @@ export const createDefaultAdapterManager = (): SiteAdapterManager => {
     new GeminiAdapter(),
     new GrokAdapter(),
     new DeepSeekAdapter(),
-    new QwenAdapter()
+    new QwenAdapter(),
+    new KimiAdapter(),
+    new NovaAdapter()
   ]);
   manager.detect();
   return manager;

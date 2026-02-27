@@ -12,8 +12,16 @@
     "https://grok.com/*",
     "https://x.com/i/grok*",
     "https://chat.deepseek.com/*",
-    "https://chat.qwen.ai/*",
-    "https://qwen.ai/*"
+    "https://kimi.moonshot.cn/*",
+    "https://www.kimi.moonshot.cn/*",
+    "https://kimi.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.ai/*",
+    "https://www.kimi.ai/*",
+    "https://novaapp.ai/*",
+    "https://*.novaapp.ai/*",
+    "https://nova.ai/*",
+    "https://*.nova.ai/*"
   ],
   "content_scripts": [
     {
@@ -35,8 +43,16 @@
         "https://grok.com/*",
         "https://x.com/i/grok*",
         "https://chat.deepseek.com/*",
-        "https://chat.qwen.ai/*",
-        "https://qwen.ai/*"
+        "https://kimi.moonshot.cn/*",
+        "https://www.kimi.moonshot.cn/*",
+        "https://kimi.com/*",
+        "https://www.kimi.com/*",
+        "https://kimi.ai/*",
+        "https://www.kimi.ai/*",
+        "https://novaapp.ai/*",
+        "https://*.novaapp.ai/*",
+        "https://nova.ai/*",
+        "https://*.nova.ai/*"
       ],
       "run_at": "document_idle",
       "js": ["content/core.js"],

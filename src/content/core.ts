@@ -12,6 +12,8 @@ import { GeminiAdapter } from "./adapters/geminiAdapter";
 import { GrokAdapter } from "./adapters/grokAdapter";
 import { DeepSeekAdapter } from "./adapters/deepseekAdapter";
 import { QwenAdapter } from "./adapters/qwenAdapter";
+import { KimiAdapter } from "./adapters/kimiAdapter";
+import { NovaAdapter } from "./adapters/novaAdapter";
 
 const contextEngine = new ContextStackEngine();
 const adapterManager = new SiteAdapterManager([
@@ -21,7 +23,9 @@ const adapterManager = new SiteAdapterManager([
   new GeminiAdapter(),
   new GrokAdapter(),
   new DeepSeekAdapter(),
-  new QwenAdapter()
+  new QwenAdapter(),
+  new KimiAdapter(),
+  new NovaAdapter()
 ]);
 adapterManager.detect();
 
@@ -31,12 +35,14 @@ const isGeminiActive = (): boolean => getAdapter()?.name === "Gemini";
 const isGrokActive = (): boolean => getAdapter()?.name === "Grok";
 const isDeepSeekActive = (): boolean => getAdapter()?.name === "DeepSeek";
 const isQwenActive = (): boolean => getAdapter()?.name === "Qwen";
+const isKimiActive = (): boolean => getAdapter()?.name === "Kimi";
+const isNovaActive = (): boolean => getAdapter()?.name === "Nova";
 // grok.com uses fetch interception; x.com/i/grok keeps DOM injection (different API)
 const isGrokDotComActive = (): boolean =>
   getAdapter()?.name === "Grok" && window.location.hostname === "grok.com";
 const usesPageBridgeInjection = (): boolean => isChatGPTActive() || isGrokDotComActive();
 const shouldAutoClearContextOnSend = (): boolean =>
-  isChatGPTActive() || isGeminiActive() || isGrokActive() || isDeepSeekActive() || isQwenActive();
+  isChatGPTActive() || isGeminiActive() || isGrokActive() || isDeepSeekActive() || isQwenActive() || isKimiActive() || isNovaActive();
 const CONTEXT_MARKER = "### SELECTED CONTEXT (User-Collected)";
 const PAGE_PATCH_EVENT = "UCS_PAGE_PATCH_EVENT";
 const PAGE_PATCH_SOURCE = "ucs-page-bridge";
@@ -114,14 +120,29 @@ const addSelectionToContext = async (text: string): Promise<void> => {
     return;
   }
 
-  const result = await contextEngine.addSnippet({
-    text: normalized,
-    sourceUrl: window.location.href
-  });
+  const snippetKey = normalizeSnippetKey(normalized);
+  if (!snippetKey) {
+    return;
+  }
 
-  if (result.ok) {
-    sidebar.toggle(true);
-    setSidebarState(result.state);
+  const alreadyExists = latestContextState.snippets.some((snippet) => normalizeSnippetKey(snippet.text) === snippetKey);
+  if (alreadyExists || pendingSnippetKeys.has(snippetKey)) {
+    return;
+  }
+
+  pendingSnippetKeys.add(snippetKey);
+  try {
+    const result = await contextEngine.addSnippet({
+      text: normalized,
+      sourceUrl: window.location.href
+    });
+
+    if (result.ok) {
+      sidebar.toggle(true);
+      setSidebarState(result.state);
+    }
+  } finally {
+    pendingSnippetKeys.delete(snippetKey);
   }
 };
 
@@ -240,6 +261,15 @@ const setSidebarState = (state: ContextStackState): void => {
   latestContextState = state;
   sidebar.setState(state);
 };
+
+const normalizeSnippetKey = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const pendingSnippetKeys = new Set<string>();
 
 const sidebar = new SidebarPanel({
   onDelete: async (id: string) => {
@@ -478,6 +508,40 @@ const findNativeGrokAddButton = (target: EventTarget | null, event?: Event): Ele
 const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
   if (!(target instanceof Element)) {
     return null;
+  }
+
+  // Nova: right action button is often type="button" and toggles based on input text.
+  const novaAction = target.closest("button[class*='messagebox__record-button'], button[class*='messagebox__send']");
+  if (novaAction instanceof HTMLElement) {
+    const inNovaComposer = !!novaAction.closest("div[class*='messagebox_'], div[class*='message-box__content']");
+    const novaDisabled =
+      novaAction.hasAttribute("disabled") ||
+      novaAction.classList.contains("disabled") ||
+      (novaAction.getAttribute("aria-disabled") ?? "").toLowerCase() === "true";
+
+    if (inNovaComposer && !novaDisabled) {
+      const adapter = getAdapter();
+      const editor = adapter?.name === "Nova" ? adapter.getEditorElement() : null;
+      const editorText = editor instanceof HTMLTextAreaElement ? editor.value.trim() : (editor?.textContent ?? "").trim();
+      const className = (novaAction.className ?? "").toLowerCase();
+      const looksLikeSendClass = className.includes("send");
+      if (looksLikeSendClass || editorText.length > 0) {
+        return novaAction;
+      }
+    }
+  }
+
+  // Kimi: send control is a div.send-button-container (not a <button>).
+  const kimiSend = target.closest(".send-button-container");
+  if (kimiSend instanceof HTMLElement) {
+    const kimiDisabled =
+      kimiSend.classList.contains("disabled") ||
+      (kimiSend.getAttribute("aria-disabled") ?? "").toLowerCase() === "true";
+    const kimiHasSendGlyph = !!kimiSend.querySelector(".send-icon, svg[name='Send']");
+    const kimiInComposer = !!kimiSend.closest(".chat-editor-action, .chat-editor");
+    if (!kimiDisabled && kimiHasSendGlyph && kimiInComposer) {
+      return kimiSend;
+    }
   }
 
   const button = target.closest("button, [role='button']");
@@ -918,6 +982,7 @@ document.addEventListener(
   },
   true
 );
+
 document.addEventListener(
   "click",
   (event) => {

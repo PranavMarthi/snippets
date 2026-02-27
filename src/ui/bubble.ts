@@ -2,7 +2,7 @@ export interface BubbleHandlers {
   onAdd: () => void;
 }
 
-type PlatformTheme = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "perplexity" | "default";
+type PlatformTheme = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "kimi" | "nova" | "perplexity" | "default";
 
 const detectPlatform = (): PlatformTheme => {
   const host = window.location.hostname;
@@ -12,6 +12,23 @@ const detectPlatform = (): PlatformTheme => {
   if (host === "grok.com" || (host === "x.com" && window.location.pathname.startsWith("/i/grok"))) return "grok";
   if (host === "chat.deepseek.com" || host === "deepseek.com" || host === "www.deepseek.com") return "deepseek";
   if (host === "chat.qwen.ai" || host === "qwen.ai" || host === "www.qwen.ai") return "qwen";
+  if (
+    host === "kimi.moonshot.cn" ||
+    host === "www.kimi.moonshot.cn" ||
+    host === "kimi.com" ||
+    host === "www.kimi.com" ||
+    host === "kimi.ai" ||
+    host === "www.kimi.ai"
+  ) return "kimi";
+  if (
+    host === "novaapp.ai" ||
+    host === "www.novaapp.ai" ||
+    host === "app.novaapp.ai" ||
+    host === "chat.novaapp.ai" ||
+    host === "nova.ai" ||
+    host === "www.nova.ai" ||
+    host === "chat.nova.ai"
+  ) return "nova";
   if (host.includes("perplexity")) return "perplexity";
   return "default";
 };
@@ -23,6 +40,8 @@ const platformLabel: Record<PlatformTheme, string> = {
   grok: "Add Context",
   deepseek: "Add Context",
   qwen: "Add Context",
+  kimi: "Add Context",
+  nova: "Add to Context",
   perplexity: "Add Context",
   default: "Add Context"
 };
@@ -66,15 +85,27 @@ export class ActionBubble {
       const className = (doc.className || "").toLowerCase();
       const bodyClassName = (body?.className || "").toLowerCase();
       const dataTheme = (doc.getAttribute("data-theme") || body?.getAttribute("data-theme") || "").toLowerCase();
+      const dataMode = ((
+        doc.getAttribute("data-mode") ||
+        body?.getAttribute("data-mode") ||
+        doc.getAttribute("data-color-mode") ||
+        body?.getAttribute("data-color-mode") ||
+        doc.getAttribute("data-color-scheme") ||
+        body?.getAttribute("data-color-scheme") ||
+        doc.getAttribute("theme") ||
+        body?.getAttribute("theme")
+      ) ?? "").toLowerCase();
       const colorScheme = (doc.style.colorScheme || body?.style.colorScheme || "").toLowerCase();
       const prefersDark = this.colorSchemeQuery?.matches ?? false;
 
       let bgIsDark = false;
+      let bgKnown = false;
       try {
         const bodyBg = body ? window.getComputedStyle(body).backgroundColor : "";
         const htmlBg = window.getComputedStyle(doc).backgroundColor;
         const bg = bodyBg || htmlBg;
         if (bg && bg !== "rgba(0, 0, 0, 0)") {
+          bgKnown = true;
           const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
           if (match) {
             const luminance = (parseInt(match[1] ?? "0") * 299 + parseInt(match[2] ?? "0") * 587 + parseInt(match[3] ?? "0") * 114) / 1000;
@@ -83,13 +114,20 @@ export class ActionBubble {
         }
       } catch { /* ignore */ }
 
-      const isDark =
+      const explicitDark =
         className.includes("dark") ||
         bodyClassName.includes("dark") ||
         dataTheme.includes("dark") ||
-        colorScheme.includes("dark") ||
-        prefersDark ||
-        bgIsDark;
+        dataMode.includes("dark") ||
+        colorScheme.includes("dark");
+      const explicitLight =
+        className.includes("light") ||
+        bodyClassName.includes("light") ||
+        dataTheme.includes("light") ||
+        dataMode.includes("light") ||
+        colorScheme.includes("light");
+
+      const isDark = explicitDark || (!explicitLight && (bgKnown ? bgIsDark : prefersDark));
       this.host.dataset.theme = isDark ? "dark" : "light";
     };
 
@@ -253,6 +291,38 @@ export class ActionBubble {
           --btn-text: #edf0fa;
           --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(164, 178, 216, 0.26);
           --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(183, 198, 237, 0.4);
+        }
+
+        /* ─── Kimi ─── */
+        :host([data-platform="kimi"]) {
+          --btn-bg: #292b32;
+          --btn-text: #eceff7;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(146, 155, 176, 0.24);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(163, 173, 197, 0.36);
+          --btn-radius: 14px;
+        }
+        :host([data-platform="kimi"][data-theme="dark"]) {
+          --btn-bg: #24262d;
+          --btn-text: #f1f4fc;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.56), 0 0 0 1px rgba(156, 166, 189, 0.26);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.64), 0 0 0 1px rgba(177, 188, 214, 0.4);
+        }
+
+        /* ─── Nova ─── */
+        :host([data-platform="nova"]) {
+          --btn-bg: #f7f9ff;
+          --btn-text: #2e3b57;
+          --btn-shadow: 0 2px 10px rgba(18, 27, 43, 0.1), 0 0 0 1px rgba(77, 104, 164, 0.2);
+          --btn-shadow-hover: 0 4px 14px rgba(18, 27, 43, 0.16), 0 0 0 1px rgba(77, 104, 164, 0.34);
+          --btn-radius: 13px;
+          --btn-font: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          --btn-weight: 600;
+        }
+        :host([data-platform="nova"][data-theme="dark"]) {
+          --btn-bg: #2b313d;
+          --btn-text: #eaf0ff;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(142, 164, 215, 0.3);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(170, 191, 240, 0.44);
         }
 
         *, *::before, *::after { box-sizing: border-box; }

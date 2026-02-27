@@ -11,7 +11,8 @@ Chrome extension (Manifest V3) that lets you multi-select snippets across AI cha
 - `gemini.google.com`
 - `grok.com`
 - `chat.deepseek.com`
-- `chat.qwen.ai`
+- `kimi.moonshot.cn`
+- `novaapp.ai`
 
 ## Features
 

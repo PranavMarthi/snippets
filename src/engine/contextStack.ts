@@ -8,6 +8,12 @@ export interface AddSnippetInput {
 }
 
 const normalizeText = (text: string): string => text.trim();
+const normalizeTextKey = (text: string): string =>
+  text
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 
 export class ContextStackEngine {
   private limits: StorageLimits;
@@ -23,6 +29,7 @@ export class ContextStackEngine {
   async addSnippet(input: AddSnippetInput): Promise<{ ok: boolean; reason?: string; state: ContextStackState }> {
     const state = await this.getState();
     const text = normalizeText(input.text);
+    const textKey = normalizeTextKey(text);
 
     if (text.length < 3) {
       return { ok: false, reason: "Selection too short", state };
@@ -32,7 +39,7 @@ export class ContextStackEngine {
       return { ok: false, reason: "Selection too large", state };
     }
 
-    const isDuplicate = state.snippets.some((existing) => existing.text === text);
+    const isDuplicate = state.snippets.some((existing) => normalizeTextKey(existing.text) === textKey);
     if (isDuplicate) {
       return { ok: false, reason: "Duplicate snippet", state };
     }

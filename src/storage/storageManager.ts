@@ -158,6 +158,69 @@ const deriveConversationScope = (): string => {
     return `qwen:route:${pathname}${search}`;
   }
 
+  if (
+    hostname === "kimi.moonshot.cn" ||
+    hostname === "www.kimi.moonshot.cn" ||
+    hostname === "kimi.com" ||
+    hostname === "www.kimi.com" ||
+    hostname === "kimi.ai" ||
+    hostname === "www.kimi.ai"
+  ) {
+    const fromCPath = pathname.match(/\/c\/([^/?#]+)/);
+    if (fromCPath?.[1]) {
+      return `kimi:${fromCPath[1]}`;
+    }
+
+    const chatIndex = pathParts.indexOf("chat");
+    if (chatIndex >= 0 && pathParts[chatIndex + 1]) {
+      return `kimi:${pathParts[chatIndex + 1]}`;
+    }
+
+    const params = new URLSearchParams(search);
+    const paramId =
+      params.get("conversationId") ??
+      params.get("conversation_id") ??
+      params.get("chatId") ??
+      params.get("sessionId");
+    if (paramId) {
+      return `kimi:${paramId}`;
+    }
+
+    return `kimi:route:${pathname}${search}`;
+  }
+
+  if (
+    hostname === "novaapp.ai" ||
+    hostname === "www.novaapp.ai" ||
+    hostname === "app.novaapp.ai" ||
+    hostname === "chat.novaapp.ai" ||
+    hostname === "nova.ai" ||
+    hostname === "www.nova.ai" ||
+    hostname === "chat.nova.ai"
+  ) {
+    const fromCPath = pathname.match(/\/c\/([^/?#]+)/);
+    if (fromCPath?.[1]) {
+      return `nova:${fromCPath[1]}`;
+    }
+
+    const chatMatch = pathname.match(/\/chat\/([^/?#]+)/);
+    if (chatMatch?.[1]) {
+      return `nova:${chatMatch[1]}`;
+    }
+
+    const params = new URLSearchParams(search);
+    const paramId =
+      params.get("conversationId") ??
+      params.get("conversation_id") ??
+      params.get("chatId") ??
+      params.get("sessionId");
+    if (paramId) {
+      return `nova:${paramId}`;
+    }
+
+    return `nova:route:${pathname}${search}`;
+  }
+
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   return `${hostname}${normalizedPath}`;
 };

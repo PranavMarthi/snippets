@@ -8,7 +8,7 @@ export interface SidebarHandlers {
   onInjectSelected: (ids: string[]) => void;
 }
 
-type SidebarPlatform = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "perplexity" | "default";
+type SidebarPlatform = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "kimi" | "nova" | "perplexity" | "default";
 
 const detectSidebarPlatform = (): SidebarPlatform => {
   const host = window.location.hostname;
@@ -18,6 +18,23 @@ const detectSidebarPlatform = (): SidebarPlatform => {
   if (host === "grok.com" || (host === "x.com" && window.location.pathname.startsWith("/i/grok"))) return "grok";
   if (host === "chat.deepseek.com" || host === "deepseek.com" || host === "www.deepseek.com") return "deepseek";
   if (host === "chat.qwen.ai" || host === "qwen.ai" || host === "www.qwen.ai") return "qwen";
+  if (
+    host === "kimi.moonshot.cn" ||
+    host === "www.kimi.moonshot.cn" ||
+    host === "kimi.com" ||
+    host === "www.kimi.com" ||
+    host === "kimi.ai" ||
+    host === "www.kimi.ai"
+  ) return "kimi";
+  if (
+    host === "novaapp.ai" ||
+    host === "www.novaapp.ai" ||
+    host === "app.novaapp.ai" ||
+    host === "chat.novaapp.ai" ||
+    host === "nova.ai" ||
+    host === "www.nova.ai" ||
+    host === "chat.nova.ai"
+  ) return "nova";
   if (host.includes("perplexity")) return "perplexity";
   return "default";
 };
@@ -57,16 +74,28 @@ export class SidebarPanel {
       const className = (doc.className || "").toLowerCase();
       const bodyClassName = (body?.className || "").toLowerCase();
       const dataTheme = (doc.getAttribute("data-theme") || body?.getAttribute("data-theme") || "").toLowerCase();
+      const dataMode = ((
+        doc.getAttribute("data-mode") ||
+        body?.getAttribute("data-mode") ||
+        doc.getAttribute("data-color-mode") ||
+        body?.getAttribute("data-color-mode") ||
+        doc.getAttribute("data-color-scheme") ||
+        body?.getAttribute("data-color-scheme") ||
+        doc.getAttribute("theme") ||
+        body?.getAttribute("theme")
+      ) ?? "").toLowerCase();
       const colorScheme = (doc.style.colorScheme || body?.style.colorScheme || "").toLowerCase();
       const prefersDark = this.colorSchemeQuery?.matches ?? false;
 
       // Check background color for dark detection (Claude doesn't use class/data-theme)
       let bgIsDark = false;
+      let bgKnown = false;
       try {
         const bodyBg = body ? window.getComputedStyle(body).backgroundColor : "";
         const htmlBg = window.getComputedStyle(doc).backgroundColor;
         const bg = bodyBg || htmlBg;
         if (bg && bg !== "rgba(0, 0, 0, 0)") {
+          bgKnown = true;
           const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
           if (match) {
             const luminance = (parseInt(match[1] ?? "0") * 299 + parseInt(match[2] ?? "0") * 587 + parseInt(match[3] ?? "0") * 114) / 1000;
@@ -75,13 +104,20 @@ export class SidebarPanel {
         }
       } catch { /* ignore */ }
 
-      const isDark =
+      const explicitDark =
         className.includes("dark") ||
         bodyClassName.includes("dark") ||
         dataTheme.includes("dark") ||
-        colorScheme.includes("dark") ||
-        prefersDark ||
-        bgIsDark;
+        dataMode.includes("dark") ||
+        colorScheme.includes("dark");
+      const explicitLight =
+        className.includes("light") ||
+        bodyClassName.includes("light") ||
+        dataTheme.includes("light") ||
+        dataMode.includes("light") ||
+        colorScheme.includes("light");
+
+      const isDark = explicitDark || (!explicitLight && (bgKnown ? bgIsDark : prefersDark));
       this.host.dataset.theme = isDark ? "dark" : "light";
     };
 
@@ -158,9 +194,43 @@ export class SidebarPanel {
   private ensureMounted(): void {
     const target = this.mountTargetGetter();
 
+    if (this.platform === "qwen") {
+      const qwenTextareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>("textarea.message-input-textarea"));
+      const visibleTextareas = qwenTextareas
+        .map((textarea) => ({ textarea, rect: textarea.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width > 0 && rect.height > 0 && rect.bottom > window.innerHeight * 0.5);
+      visibleTextareas.sort((a, b) => b.rect.bottom - a.rect.bottom);
+      const anchorTextarea = visibleTextareas[0]?.textarea ?? null;
+
+      if (anchorTextarea) {
+        const inputRow = this.findQwenInputRow(anchorTextarea);
+        if (inputRow) {
+          const composerRoot = this.findQwenComposerRoot(inputRow) ?? inputRow;
+          const mountParent = composerRoot.parentElement;
+          if (mountParent && (this.host.parentElement !== mountParent || this.host.nextSibling !== composerRoot)) {
+            mountParent.insertBefore(this.host, composerRoot);
+          }
+          if (mountParent && composerRoot instanceof HTMLElement) {
+            this.applyQwenSiblingStyles(composerRoot);
+            this.isInline = true;
+            return;
+          }
+        }
+
+        if (anchorTextarea.parentElement && (this.host.parentElement !== anchorTextarea.parentElement || this.host.nextSibling !== anchorTextarea)) {
+          anchorTextarea.parentElement.insertBefore(this.host, anchorTextarea);
+        }
+        if (anchorTextarea.parentElement) {
+          this.applyAboveComposerStyles();
+          this.isInline = true;
+          return;
+        }
+      }
+    }
+
     if (target) {
-      if (this.platform === "chatgpt" || this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen") {
-        // ChatGPT, Grok, DeepSeek & Qwen: prepend inside the container (full width)
+      if (this.platform === "chatgpt" || this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen" || this.platform === "nova") {
+        // ChatGPT, Grok, DeepSeek, Qwen, Nova: prepend inside the container (full width)
         if (this.host.parentElement !== target || target.firstElementChild !== this.host) {
           target.prepend(this.host);
         }
@@ -211,8 +281,8 @@ export class SidebarPanel {
     this.host.style.gridColumn = "";
     this.host.style.minWidth = "0";
 
-    if (this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen") {
-      // Grok/DeepSeek/Qwen: prepended inside the composer shell, use full width layout
+    if (this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen" || this.platform === "nova") {
+      // Grok/DeepSeek/Qwen/Nova: prepended inside the composer shell, use full width layout
       this.host.style.position = "relative";
       this.host.style.width = "100%";
       this.host.style.maxWidth = "100%";
@@ -234,6 +304,9 @@ export class SidebarPanel {
         this.host.style.marginBottom = "6px";
       }
       if (this.platform === "qwen") {
+        this.host.style.marginBottom = "6px";
+      }
+      if (this.platform === "nova") {
         this.host.style.marginBottom = "6px";
       }
       return;
@@ -267,6 +340,8 @@ export class SidebarPanel {
       grok: "100px",
       deepseek: "118px",
       qwen: "112px",
+      kimi: "112px",
+      nova: "112px",
       perplexity: "108px",
       default: "108px"
     };
@@ -411,6 +486,88 @@ export class SidebarPanel {
     window.addEventListener("scroll", () => this.ensureMounted(), { passive: true, capture: true });
   }
 
+  private findQwenInputRow(textarea: HTMLTextAreaElement): HTMLElement | null {
+    let candidate: HTMLElement | null = textarea.parentElement;
+    for (let i = 0; i < 8 && candidate; i += 1) {
+      const hasTextarea = candidate.contains(textarea);
+      const hasRightControls = !!candidate.querySelector(
+        ".message-input-right-button, .message-input-right-button-send, .chat-prompt-send-button"
+      );
+      const hasSendControl = !!candidate.querySelector(
+        ".chat-prompt-send-button, .message-input-right-button-send, .send-button"
+      );
+      const rect = candidate.getBoundingClientRect();
+      const style = window.getComputedStyle(candidate);
+      const isFlex = style.display.toLowerCase().includes("flex");
+      const isRow = !style.flexDirection.toLowerCase().includes("column");
+      const nearBottom = rect.bottom > window.innerHeight * 0.6;
+      const compactHeight = rect.height > 0 && rect.height <= 120;
+      const wideEnough = rect.width >= 360;
+
+      if (hasTextarea && hasRightControls && hasSendControl && nearBottom && wideEnough && isFlex && isRow && compactHeight) {
+        return candidate;
+      }
+
+      if (candidate === document.body) {
+        break;
+      }
+      candidate = candidate.parentElement;
+    }
+
+    return null;
+  }
+
+  private findQwenComposerRoot(inputRow: HTMLElement): HTMLElement | null {
+    let candidate: HTMLElement | null = inputRow;
+    let best: HTMLElement | null = null;
+
+    for (let i = 0; i < 8 && candidate; i += 1) {
+      const rect = candidate.getBoundingClientRect();
+      const nearBottom = rect.bottom > window.innerHeight * 0.55;
+      const wideEnough = rect.width >= 360;
+      const composerSized = rect.height >= 52 && rect.height <= 260;
+      const hasTextarea = !!candidate.querySelector("textarea.message-input-textarea");
+      const hasControls = !!candidate.querySelector(
+        ".message-input-right-button, .message-input-right-button-send, .chat-prompt-send-button"
+      );
+
+      if (nearBottom && wideEnough && composerSized && hasTextarea && hasControls) {
+        best = candidate;
+      }
+
+      if (candidate === document.body) {
+        break;
+      }
+      candidate = candidate.parentElement;
+    }
+
+    return best;
+  }
+
+  private applyQwenSiblingStyles(composerRoot: HTMLElement): void {
+    const composerRect = composerRoot.getBoundingClientRect();
+    const composerStyle = window.getComputedStyle(composerRoot);
+
+    this.host.style.position = "relative";
+    this.host.style.zIndex = "1";
+    this.host.style.left = "";
+    this.host.style.top = "";
+    this.host.style.bottom = "";
+    this.host.style.transform = "none";
+    this.host.style.gridColumn = "";
+    this.host.style.minWidth = "0";
+    this.host.style.width = `${composerRect.width}px`;
+    this.host.style.maxWidth = `${composerRect.width}px`;
+    this.host.style.marginLeft = composerStyle.marginLeft;
+    this.host.style.marginRight = composerStyle.marginRight;
+    this.host.style.marginTop = "0";
+    this.host.style.marginBottom = "6px";
+    this.host.style.padding = "0";
+    this.host.style.height = "auto";
+    this.host.style.maxHeight = "none";
+    this.host.style.overflow = "visible";
+  }
+
   private template(): string {
     const fontUrl = typeof chrome !== "undefined" && chrome.runtime?.getURL
       ? chrome.runtime.getURL("fonts/Google_Sans.ttf")
@@ -461,6 +618,24 @@ export class SidebarPanel {
           padding: 0 !important;
         }
         :host([data-platform="qwen"]) {
+          width: 100% !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        :host([data-platform="kimi"]) {
+          width: 100% !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        :host([data-platform="nova"]) {
           width: 100% !important;
           height: auto !important;
           max-height: none !important;
@@ -567,6 +742,42 @@ export class SidebarPanel {
           --tile-remove-hover: rgba(205, 214, 237, 0.16);
           --tile-remove-icon-hover: rgba(242, 247, 255, 1);
           --tile-focus-ring: rgba(165, 182, 226, 0.76);
+        }
+
+        /* ── Kimi theme (dark graphite) ── */
+        :host([data-platform="kimi"]) {
+          --tile-text-color: #e2e6ef;
+          --tile-muted-icon: rgba(186, 193, 208, 0.7);
+          --tile-remove-icon: rgba(186, 193, 208, 0.62);
+          --tile-remove-hover: rgba(186, 193, 208, 0.12);
+          --tile-remove-icon-hover: rgba(241, 245, 255, 0.96);
+          --tile-focus-ring: rgba(149, 161, 188, 0.68);
+        }
+        :host([data-platform="kimi"][data-theme="dark"]) {
+          --tile-text-color: #eaedf6;
+          --tile-muted-icon: rgba(195, 202, 218, 0.74);
+          --tile-remove-icon: rgba(195, 202, 218, 0.68);
+          --tile-remove-hover: rgba(195, 202, 218, 0.16);
+          --tile-remove-icon-hover: rgba(246, 249, 255, 1);
+          --tile-focus-ring: rgba(165, 178, 206, 0.76);
+        }
+
+        /* ── Nova theme (soft neutral) ── */
+        :host([data-platform="nova"]) {
+          --tile-text-color: #363d4a;
+          --tile-muted-icon: rgba(54, 61, 74, 0.54);
+          --tile-remove-icon: rgba(54, 61, 74, 0.44);
+          --tile-remove-hover: rgba(54, 61, 74, 0.08);
+          --tile-remove-icon-hover: rgba(54, 61, 74, 0.84);
+          --tile-focus-ring: rgba(105, 122, 160, 0.55);
+        }
+        :host([data-platform="nova"][data-theme="dark"]) {
+          --tile-text-color: #edf1f9;
+          --tile-muted-icon: rgba(201, 209, 226, 0.7);
+          --tile-remove-icon: rgba(201, 209, 226, 0.64);
+          --tile-remove-hover: rgba(201, 209, 226, 0.16);
+          --tile-remove-icon-hover: rgba(245, 249, 255, 1);
+          --tile-focus-ring: rgba(174, 189, 223, 0.74);
         }
 
         /* ── Grok font sizing ── */
@@ -677,6 +888,30 @@ export class SidebarPanel {
           margin: 0;
         }
 
+        /* ── Kimi container: inset chips above editor ── */
+        :host([data-platform="kimi"]) .container {
+          --container-bg: transparent;
+          --container-border: none;
+          --container-radius: 0;
+          --container-gap: 5px;
+          padding: 7px 10px 4px 10px;
+          margin: 0;
+        }
+
+        /* ── Nova container: rounded light shell above textarea ── */
+        :host([data-platform="nova"]) .container {
+          --container-bg: #ffffff;
+          --container-border: 1px solid rgba(22, 29, 45, 0.08);
+          --container-radius: 16px;
+          --container-gap: 5px;
+          padding: 8px 10px;
+          margin: 0 0 8px 0;
+        }
+        :host([data-platform="nova"][data-theme="dark"]) .container {
+          --container-bg: #2a2c34;
+          --container-border: 1px solid rgba(173, 181, 200, 0.2);
+        }
+
         .snippet-row {
           display: flex;
           align-items: center;
@@ -738,6 +973,52 @@ export class SidebarPanel {
           border-color: rgba(196, 208, 240, 0.46);
           background: rgba(55, 58, 68, 0.9);
         }
+        :host([data-platform="kimi"]) .snippet-row {
+          min-height: 36px;
+          margin-bottom: 0;
+          align-items: center;
+          gap: 4px;
+          border-radius: 12px;
+          border: 1px solid rgba(146, 155, 174, 0.3);
+          background: rgba(37, 39, 47, 0.86);
+          padding: 1px 4px 1px 2px;
+          transition: border-color 120ms ease, background 120ms ease;
+        }
+        :host([data-platform="kimi"]) .snippet-row:hover {
+          border-color: rgba(163, 173, 194, 0.42);
+          background: rgba(43, 46, 55, 0.92);
+        }
+        :host([data-platform="kimi"][data-theme="dark"]) .snippet-row {
+          border: 1px solid rgba(154, 164, 186, 0.34);
+          background: rgba(35, 37, 45, 0.92);
+        }
+        :host([data-platform="kimi"][data-theme="dark"]) .snippet-row:hover {
+          border-color: rgba(178, 189, 212, 0.48);
+          background: rgba(44, 47, 57, 0.95);
+        }
+        :host([data-platform="nova"]) .snippet-row {
+          min-height: 34px;
+          margin-bottom: 0;
+          align-items: center;
+          gap: 4px;
+          border-radius: 12px;
+          border: 1px solid rgba(129, 141, 166, 0.24);
+          background: #f7f8fb;
+          padding: 1px 4px 1px 2px;
+          transition: border-color 120ms ease, background 120ms ease;
+        }
+        :host([data-platform="nova"]) .snippet-row:hover {
+          border-color: rgba(120, 137, 169, 0.36);
+          background: #f2f4f8;
+        }
+        :host([data-platform="nova"][data-theme="dark"]) .snippet-row {
+          border: 1px solid rgba(167, 179, 204, 0.32);
+          background: rgba(42, 45, 55, 0.88);
+        }
+        :host([data-platform="nova"][data-theme="dark"]) .snippet-row:hover {
+          border-color: rgba(187, 200, 228, 0.46);
+          background: rgba(50, 54, 66, 0.92);
+        }
         .snippet-row.excluded {
           opacity: 0.45;
         }
@@ -768,6 +1049,20 @@ export class SidebarPanel {
           background: transparent;
         }
         :host([data-platform="qwen"]) .snippet-toggle {
+          padding: 6px 8px;
+          gap: 8px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="kimi"]) .snippet-toggle {
+          padding: 6px 8px;
+          gap: 8px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="nova"]) .snippet-toggle {
           padding: 6px 8px;
           gap: 8px;
           border-radius: 10px;
@@ -817,11 +1112,31 @@ export class SidebarPanel {
           font-size: 0.9rem;
           line-height: 1.2rem;
         }
+        :host([data-platform="kimi"]) .snippet-text {
+          font-weight: 400;
+          letter-spacing: -0.01rem;
+          font-size: 0.9rem;
+          line-height: 1.2rem;
+        }
+        :host([data-platform="nova"]) .snippet-text {
+          font-weight: 400;
+          letter-spacing: -0.01rem;
+          font-size: 0.9rem;
+          line-height: 1.2rem;
+        }
         :host([data-platform="deepseek"]) .snippet-arrow {
           width: 18px;
           height: 18px;
         }
         :host([data-platform="qwen"]) .snippet-arrow {
+          width: 18px;
+          height: 18px;
+        }
+        :host([data-platform="kimi"]) .snippet-arrow {
+          width: 18px;
+          height: 18px;
+        }
+        :host([data-platform="nova"]) .snippet-arrow {
           width: 18px;
           height: 18px;
         }
@@ -877,6 +1192,38 @@ export class SidebarPanel {
         :host([data-platform="qwen"]) .snippet-remove:hover {
           color: rgba(242, 247, 255, 1);
           background: rgba(188, 200, 234, 0.2);
+        }
+        :host([data-platform="kimi"]) .snippet-remove {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          border: none;
+          background: transparent;
+          opacity: 0.9;
+        }
+        :host([data-platform="kimi"][data-theme="dark"]) .snippet-remove {
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="kimi"]) .snippet-remove:hover {
+          color: rgba(245, 249, 255, 1);
+          background: rgba(176, 184, 201, 0.18);
+        }
+        :host([data-platform="nova"]) .snippet-remove {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          border: none;
+          background: transparent;
+          opacity: 0.88;
+        }
+        :host([data-platform="nova"][data-theme="dark"]) .snippet-remove {
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="nova"]) .snippet-remove:hover {
+          color: rgba(54, 61, 74, 0.9);
+          background: rgba(127, 141, 168, 0.16);
         }
       </style>
       <div class="container" id="ucs-list"></div>
