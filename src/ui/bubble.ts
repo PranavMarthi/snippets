@@ -2,7 +2,7 @@ export interface BubbleHandlers {
   onAdd: () => void;
 }
 
-type PlatformTheme = "chatgpt" | "claude" | "gemini" | "grok" | "perplexity" | "default";
+type PlatformTheme = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "perplexity" | "default";
 
 const detectPlatform = (): PlatformTheme => {
   const host = window.location.hostname;
@@ -10,6 +10,8 @@ const detectPlatform = (): PlatformTheme => {
   if (host === "claude.ai") return "claude";
   if (host === "gemini.google.com") return "gemini";
   if (host === "grok.com" || (host === "x.com" && window.location.pathname.startsWith("/i/grok"))) return "grok";
+  if (host === "chat.deepseek.com" || host === "deepseek.com" || host === "www.deepseek.com") return "deepseek";
+  if (host === "chat.qwen.ai" || host === "qwen.ai" || host === "www.qwen.ai") return "qwen";
   if (host.includes("perplexity")) return "perplexity";
   return "default";
 };
@@ -19,6 +21,8 @@ const platformLabel: Record<PlatformTheme, string> = {
   claude: "Add Context",
   gemini: "Add Context",
   grok: "Add Context",
+  deepseek: "Add Context",
+  qwen: "Add Context",
   perplexity: "Add Context",
   default: "Add Context"
 };
@@ -219,6 +223,36 @@ export class ActionBubble {
           --btn-text: #e7e9ea;
           --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
           --btn-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.12);
+        }
+
+        /* ─── DeepSeek ─── */
+        :host([data-platform="deepseek"]) {
+          --btn-bg: #2f3138;
+          --btn-text: #dce5ff;
+          --btn-shadow: 0 2px 10px rgba(8, 11, 20, 0.34), 0 0 0 1px rgba(83, 116, 184, 0.24);
+          --btn-shadow-hover: 0 4px 14px rgba(8, 11, 20, 0.45), 0 0 0 1px rgba(110, 145, 222, 0.34);
+          --btn-radius: 14px;
+        }
+        :host([data-platform="deepseek"][data-theme="dark"]) {
+          --btn-bg: #2a2d35;
+          --btn-text: #dce5ff;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(109, 138, 206, 0.28);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(134, 166, 234, 0.4);
+        }
+
+        /* ─── Qwen ─── */
+        :host([data-platform="qwen"]) {
+          --btn-bg: #2f3138;
+          --btn-text: #eceff8;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(153, 166, 201, 0.22);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.44), 0 0 0 1px rgba(173, 187, 226, 0.36);
+          --btn-radius: 14px;
+        }
+        :host([data-platform="qwen"][data-theme="dark"]) {
+          --btn-bg: #2c2e36;
+          --btn-text: #edf0fa;
+          --btn-shadow: 0 2px 10px rgba(0, 0, 0, 0.52), 0 0 0 1px rgba(164, 178, 216, 0.26);
+          --btn-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(183, 198, 237, 0.4);
         }
 
         *, *::before, *::after { box-sizing: border-box; }

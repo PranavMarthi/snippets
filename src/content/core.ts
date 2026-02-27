@@ -10,6 +10,8 @@ import { ClaudeAdapter } from "./adapters/claudeAdapter";
 import { PerplexityAdapter } from "./adapters/perplexityAdapter";
 import { GeminiAdapter } from "./adapters/geminiAdapter";
 import { GrokAdapter } from "./adapters/grokAdapter";
+import { DeepSeekAdapter } from "./adapters/deepseekAdapter";
+import { QwenAdapter } from "./adapters/qwenAdapter";
 
 const contextEngine = new ContextStackEngine();
 const adapterManager = new SiteAdapterManager([
@@ -17,12 +19,24 @@ const adapterManager = new SiteAdapterManager([
   new ClaudeAdapter(),
   new PerplexityAdapter(),
   new GeminiAdapter(),
-  new GrokAdapter()
+  new GrokAdapter(),
+  new DeepSeekAdapter(),
+  new QwenAdapter()
 ]);
 adapterManager.detect();
 
 const getAdapter = () => adapterManager.getActiveAdapter();
 const isChatGPTActive = (): boolean => getAdapter()?.name === "ChatGPT";
+const isGeminiActive = (): boolean => getAdapter()?.name === "Gemini";
+const isGrokActive = (): boolean => getAdapter()?.name === "Grok";
+const isDeepSeekActive = (): boolean => getAdapter()?.name === "DeepSeek";
+const isQwenActive = (): boolean => getAdapter()?.name === "Qwen";
+// grok.com uses fetch interception; x.com/i/grok keeps DOM injection (different API)
+const isGrokDotComActive = (): boolean =>
+  getAdapter()?.name === "Grok" && window.location.hostname === "grok.com";
+const usesPageBridgeInjection = (): boolean => isChatGPTActive() || isGrokDotComActive();
+const shouldAutoClearContextOnSend = (): boolean =>
+  isChatGPTActive() || isGeminiActive() || isGrokActive() || isDeepSeekActive() || isQwenActive();
 const CONTEXT_MARKER = "### SELECTED CONTEXT (User-Collected)";
 const PAGE_PATCH_EVENT = "UCS_PAGE_PATCH_EVENT";
 const PAGE_PATCH_SOURCE = "ucs-page-bridge";
@@ -118,10 +132,20 @@ const copyCompiledContext = async (ids?: string[]): Promise<void> => {
   await navigator.clipboard.writeText(text);
 };
 
+const clearContextSnippetsImmediately = (): void => {
+  if (!latestContextState.snippets.length) {
+    return;
+  }
+
+  // Optimistically hide snippets on send; storage sync follows immediately after.
+  setSidebarState({ snippets: [], totalChars: 0, updatedAt: Date.now() });
+  void contextEngine.clear().then((next) => setSidebarState(next));
+};
+
 const clearContextAfterSend = (): void => {
   resolveSendTransaction();
   dispatchPagePatchEvent({ type: "clear-context" });
-  void contextEngine.clear().then((next) => setSidebarState(next));
+  clearContextSnippetsImmediately();
 };
 
 /**
@@ -182,11 +206,6 @@ const injectContextIntoEditorDOM = (): boolean => {
     // Insert context at start
     document.execCommand("insertText", false, `${compiledContext}\n`);
   }
-
-  // Schedule context clear after a short delay to let the send complete
-  window.setTimeout(() => {
-    void contextEngine.clear().then((next) => setSidebarState(next));
-  }, 300);
 
   return true;
 };
@@ -284,7 +303,7 @@ const updateSelectionUI = () => {
   lastStableSelectionText = text;
   lastStableSelectionAt = Date.now();
 
-  if (isChatGPTActive()) {
+  if (isChatGPTActive() || isGrokActive()) {
     bubble.hide();
     return;
   }
@@ -387,6 +406,75 @@ const findNativeAskButton = (target: EventTarget | null, event?: Event): Element
   return null;
 };
 
+// ── Grok native "Add to chat" button detection ──
+const isNativeGrokAddLabel = (value: string): boolean => {
+  if (!value) {
+    return false;
+  }
+  return value.includes("add") && value.includes("chat");
+};
+
+const elementLooksLikeNativeGrokAddControl = (element: Element): boolean => {
+  const candidateText = normalizeControlText(
+    [
+      element.textContent,
+      element.getAttribute("aria-label"),
+      element.getAttribute("title")
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (isNativeGrokAddLabel(candidateText)) {
+    return true;
+  }
+
+  // Grok's button has these characteristic classes
+  const className = element.className;
+  if (typeof className === "string" && className.includes("rounded-full") && className.includes("cursor-pointer")) {
+    // Check if it has the quote SVG icon
+    const svg = element.querySelector("svg.lucide-text-quote");
+    if (svg) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const findNativeGrokAddButton = (target: EventTarget | null, event?: Event): Element | null => {
+  const path = event?.composedPath?.() ?? [];
+  for (const node of path) {
+    if (!(node instanceof Element)) {
+      continue;
+    }
+
+    const control = isButtonLikeElement(node) ? node : node.closest("button, [role='button']");
+    if (!(control instanceof Element)) {
+      continue;
+    }
+
+    if (elementLooksLikeNativeGrokAddControl(control)) {
+      return control;
+    }
+  }
+
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const control = target.closest("button, [role='button']");
+  if (!(control instanceof Element)) {
+    return null;
+  }
+
+  if (elementLooksLikeNativeGrokAddControl(control)) {
+    return control;
+  }
+
+  return null;
+};
+
 const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
   if (!(target instanceof Element)) {
     return null;
@@ -406,8 +494,16 @@ const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
     return button;
   }
 
-  // Gemini: button.send-button class
+  // Gemini/Qwen: send button class.
+  // Skip disabled state to avoid false-positive send handling.
   if (button.classList.contains("send-button")) {
+    if (
+      button.hasAttribute("disabled") ||
+      button.classList.contains("disabled") ||
+      (button.getAttribute("aria-disabled") ?? "").toLowerCase() === "true"
+    ) {
+      return null;
+    }
     return button;
   }
 
@@ -447,6 +543,29 @@ const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
 
   // Grok: look for submit-type buttons inside the chat form
   if (button.getAttribute("type") === "submit") {
+    return button;
+  }
+
+  // Qwen: send button is typically inside .chat-prompt-send-button and uses icon-only content.
+  const qwenContainer = button.closest(".chat-prompt-send-button, .message-input-right-button-send");
+  const qwenSendDisabled =
+    button.hasAttribute("disabled") ||
+    button.classList.contains("disabled") ||
+    (button.getAttribute("aria-disabled") ?? "").toLowerCase() === "true";
+  if (qwenContainer && button.classList.contains("send-button") && !qwenSendDisabled) {
+    return button;
+  }
+
+  // DeepSeek: send control is often a div[role=button] with ds-icon-button classes.
+  const hasDeepSeekComposer = !!button.closest("div[class*='aaff8b8f'], div[class*='_020ab5b']");
+  const deepSeekRoleButton = button.getAttribute("role") === "button" && button.className.includes("ds-icon-button");
+  const hasDeepSeekSendGlyph = !!button.querySelector(
+    "path[d*='14.707 6.83608'], path[d*='L14.707'][d*='L13.293'][d*='15.0431']"
+  );
+  const deepSeekDisabled =
+    (button.getAttribute("aria-disabled") ?? "").toLowerCase() === "true" ||
+    button.className.includes("disabled");
+  if (hasDeepSeekComposer && deepSeekRoleButton && hasDeepSeekSendGlyph && !deepSeekDisabled) {
     return button;
   }
 
@@ -665,6 +784,22 @@ const beginSelectedContextSendTransaction = (): number | null => {
   return beginSendTransaction(compiledContext);
 };
 
+const injectContextForSend = (): void => {
+  if (isGrokDotComActive()) {
+    // Grok API payload shape changes frequently. Start page-bridge tx and also
+    // inject into the live textarea as a reliable fallback.
+    beginSelectedContextSendTransaction();
+    injectContextIntoEditorDOM();
+    return;
+  }
+
+  if (usesPageBridgeInjection()) {
+    beginSelectedContextSendTransaction();
+  } else {
+    injectContextIntoEditorDOM();
+  }
+};
+
 const installChatGPTInvisibleContextPatch = (): void => {
   if (fetchPatchInstalled) {
     return;
@@ -758,6 +893,58 @@ document.addEventListener(
   },
   true
 );
+
+// ── Grok native "Add to chat" button handlers ──
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!isGrokActive()) {
+      return;
+    }
+
+    if (!findNativeGrokAddButton(event.target, event)) {
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || isSelectionInInput(selection)) {
+      const isFresh = Date.now() - lastStableSelectionAt < 10000;
+      pendingNativeAskSelection = isFresh ? lastStableSelectionText : latestSelectedText;
+      return;
+    }
+
+    const text = selection.toString().trim();
+    pendingNativeAskSelection = text.length >= 3 ? text : "";
+  },
+  true
+);
+document.addEventListener(
+  "click",
+  (event) => {
+    if (!isGrokActive()) {
+      return;
+    }
+
+    if (!findNativeGrokAddButton(event.target, event)) {
+      return;
+    }
+
+    const activeSelection = window.getSelection()?.toString().trim() ?? "";
+    const isFresh = Date.now() - lastStableSelectionAt < 10000;
+    const text = pendingNativeAskSelection || activeSelection || latestSelectedText || (isFresh ? lastStableSelectionText : "");
+
+    if (text.trim().length < 3) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    void addSelectionToContext(text);
+  },
+  true
+);
+
 document.addEventListener(
   "click",
   (event) => {
@@ -771,12 +958,10 @@ document.addEventListener(
       return;
     }
 
-    if (isChatGPTActive()) {
-      // ChatGPT: use fetch interception via page bridge
-      beginSelectedContextSendTransaction();
-    } else {
-      // Claude, Gemini, Grok, Perplexity: inject context into editor DOM
-      injectContextIntoEditorDOM();
+    injectContextForSend();
+
+    if (shouldAutoClearContextOnSend()) {
+      clearContextSnippetsImmediately();
     }
   },
   true
@@ -798,10 +983,16 @@ document.addEventListener(
       if (!target.matches("form[data-type='unified-composer']")) {
         return;
       }
-      beginSelectedContextSendTransaction();
+      injectContextForSend();
+    } else if (isGrokDotComActive()) {
+      injectContextForSend();
     } else {
-      // Non-ChatGPT: inject context into editor DOM on form submit
-      injectContextIntoEditorDOM();
+      // Non-page-bridge platforms: inject context into editor DOM on form submit
+      injectContextForSend();
+    }
+
+    if (shouldAutoClearContextOnSend()) {
+      clearContextSnippetsImmediately();
     }
   },
   true
@@ -828,10 +1019,10 @@ document.addEventListener(
       return;
     }
 
-    if (isChatGPTActive()) {
-      beginSelectedContextSendTransaction();
-    } else {
-      injectContextIntoEditorDOM();
+    injectContextForSend();
+
+    if (shouldAutoClearContextOnSend()) {
+      clearContextSnippetsImmediately();
     }
   },
   true
@@ -915,7 +1106,7 @@ const init = async () => {
     const adapter = getAdapter();
     console.log("[UCS] init — adapter:", adapter?.name ?? "none", "url:", window.location.href);
 
-    if (isChatGPTActive()) {
+    if (isChatGPTActive() || isGrokDotComActive()) {
       installChatGPTInvisibleContextPatch();
     }
 

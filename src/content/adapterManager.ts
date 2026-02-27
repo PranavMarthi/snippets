@@ -4,6 +4,8 @@ import { ClaudeAdapter } from "./adapters/claudeAdapter";
 import { PerplexityAdapter } from "./adapters/perplexityAdapter";
 import { GeminiAdapter } from "./adapters/geminiAdapter";
 import { GrokAdapter } from "./adapters/grokAdapter";
+import { DeepSeekAdapter } from "./adapters/deepseekAdapter";
+import { QwenAdapter } from "./adapters/qwenAdapter";
 
 export class SiteAdapterManager {
   private adapters: AISiteAdapter[];
@@ -35,7 +37,9 @@ export const createDefaultAdapterManager = (): SiteAdapterManager => {
     new ClaudeAdapter(),
     new PerplexityAdapter(),
     new GeminiAdapter(),
-    new GrokAdapter()
+    new GrokAdapter(),
+    new DeepSeekAdapter(),
+    new QwenAdapter()
   ]);
   manager.detect();
   return manager;

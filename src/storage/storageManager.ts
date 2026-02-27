@@ -122,6 +122,42 @@ const deriveConversationScope = (): string => {
     return `grok-x:${pathname}${search}`;
   }
 
+  if (hostname === "chat.deepseek.com" || hostname === "deepseek.com" || hostname === "www.deepseek.com") {
+    // DeepSeek conversation routes commonly include /a/chat/s/<id>
+    const sessionMatch = pathname.match(/\/(?:a\/)?chat\/s\/([^/?#]+)/);
+    if (sessionMatch?.[1]) {
+      return `deepseek:${sessionMatch[1]}`;
+    }
+
+    const chatIndex = pathParts.indexOf("chat");
+    if (chatIndex >= 0 && pathParts[chatIndex + 1]) {
+      return `deepseek:${pathParts[chatIndex + 1]}`;
+    }
+
+    return `deepseek:route:${pathname}${search}`;
+  }
+
+  if (hostname === "chat.qwen.ai" || hostname === "qwen.ai" || hostname === "www.qwen.ai") {
+    // Qwen often uses /c/<id> or /chat/<id> style routes.
+    const fromCPath = pathname.match(/\/c\/([^/?#]+)/);
+    if (fromCPath?.[1]) {
+      return `qwen:${fromCPath[1]}`;
+    }
+
+    const chatIndex = pathParts.indexOf("chat");
+    if (chatIndex >= 0 && pathParts[chatIndex + 1]) {
+      return `qwen:${pathParts[chatIndex + 1]}`;
+    }
+
+    const params = new URLSearchParams(search);
+    const paramId = params.get("conversationId") ?? params.get("conversation_id") ?? params.get("chatId");
+    if (paramId) {
+      return `qwen:${paramId}`;
+    }
+
+    return `qwen:route:${pathname}${search}`;
+  }
+
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   return `${hostname}${normalizedPath}`;
 };

@@ -10,13 +10,17 @@
     "https://perplexity.ai/*",
     "https://gemini.google.com/*",
     "https://grok.com/*",
-    "https://x.com/i/grok*"
+    "https://x.com/i/grok*",
+    "https://chat.deepseek.com/*",
+    "https://chat.qwen.ai/*",
+    "https://qwen.ai/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://chat.openai.com/*",
-        "https://chatgpt.com/*"
+        "https://chatgpt.com/*",
+        "https://grok.com/*"
       ],
       "run_at": "document_start",
       "world": "MAIN",
@@ -29,7 +33,10 @@
         "https://perplexity.ai/*",
         "https://gemini.google.com/*",
         "https://grok.com/*",
-        "https://x.com/i/grok*"
+        "https://x.com/i/grok*",
+        "https://chat.deepseek.com/*",
+        "https://chat.qwen.ai/*",
+        "https://qwen.ai/*"
       ],
       "run_at": "document_idle",
       "js": ["content/core.js"],

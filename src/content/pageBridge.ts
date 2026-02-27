@@ -320,6 +320,37 @@ if (!rootWindow.__ucsPagePatchInstalled) {
   };
 
   const injectVisibleFallbackIntoPayload = (payload: Record<string, unknown>, context: string): boolean => {
+    if (typeof payload.message === "string") {
+      payload.message = payload.message.includes(CONTEXT_MARKER) ? payload.message : `${context}\n${payload.message}`;
+      return true;
+    }
+
+    if (typeof payload.query === "string") {
+      payload.query = payload.query.includes(CONTEXT_MARKER) ? payload.query : `${context}\n${payload.query}`;
+      return true;
+    }
+
+    const temporaryChatMessage = payload.temporaryChatMessage;
+    if (temporaryChatMessage && typeof temporaryChatMessage === "object") {
+      const record = temporaryChatMessage as Record<string, unknown>;
+
+      if (typeof record.message === "string") {
+        record.message = record.message.includes(CONTEXT_MARKER) ? record.message : `${context}\n${record.message}`;
+        return true;
+      }
+
+      if (typeof record.text === "string") {
+        record.text = record.text.includes(CONTEXT_MARKER) ? record.text : `${context}\n${record.text}`;
+        return true;
+      }
+
+      const contentResult = prependContextToContent(record.content, context);
+      if (contentResult.changed) {
+        record.content = contentResult.next;
+        return true;
+      }
+    }
+
     if (typeof payload.prompt === "string") {
       payload.prompt = payload.prompt.includes(CONTEXT_MARKER) ? payload.prompt : `${context}\n${payload.prompt}`;
       return true;
@@ -396,6 +427,14 @@ if (!rootWindow.__ucsPagePatchInstalled) {
   };
 
   const payloadLooksLikePromptSend = (payload: Record<string, unknown>): boolean =>
+    typeof payload.message === "string" ||
+    typeof payload.query === "string" ||
+    Boolean(
+      payload.temporaryChatMessage &&
+      typeof payload.temporaryChatMessage === "object" &&
+      (typeof (payload.temporaryChatMessage as Record<string, unknown>).message === "string" ||
+        typeof (payload.temporaryChatMessage as Record<string, unknown>).text === "string")
+    ) ||
     Array.isArray(payload.messages) ||
     typeof payload.prompt === "string" ||
     typeof payload.input === "string" ||
@@ -425,10 +464,23 @@ if (!rootWindow.__ucsPagePatchInstalled) {
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
-    const isChatGPTHost = window.location.hostname === "chatgpt.com" || window.location.hostname === "chat.openai.com";
-    const isBackendApi = /\/backend-(api|anon)\//.test(requestUrl);
-    const isLikelyPromptEndpoint = /\/(conversation|messages|responses)(\/|\?|$)/.test(requestUrl);
-    if (!isChatGPTHost || !isBackendApi || !isLikelyPromptEndpoint || method !== "POST") {
+
+    if (method !== "POST") {
+      return originalFetch(input, init);
+    }
+
+    const hostname = window.location.hostname;
+    const isChatGPTHost = hostname === "chatgpt.com" || hostname === "chat.openai.com";
+    const isGrokHost = hostname === "grok.com";
+
+    const isChatGPTRequest = isChatGPTHost &&
+      /\/backend-(api|anon)\//.test(requestUrl) &&
+      /\/(conversation|messages|responses)(\/|\?|$)/.test(requestUrl);
+
+    // Match Grok's API POST calls; payloadLooksLikePromptSend is a secondary guard
+    const isGrokRequest = isGrokHost && /\/api\//i.test(requestUrl);
+
+    if (!isChatGPTRequest && !isGrokRequest) {
       return originalFetch(input, init);
     }
 
@@ -458,7 +510,11 @@ if (!rootWindow.__ucsPagePatchInstalled) {
 
         if (promptRequest && livePending) {
           const visibleInjected = injectVisibleFallbackIntoPayload(payload, livePending.context);
-          const hiddenInjected = visibleInjected ? false : injectHiddenContextIntoPayload(payload, livePending.context);
+          const hiddenInjected = visibleInjected
+            ? false
+            : isGrokRequest
+              ? false
+              : injectHiddenContextIntoPayload(payload, livePending.context);
           const injected = visibleInjected || hiddenInjected;
           sendToContent({
             type: "context-injected",
@@ -487,7 +543,7 @@ if (!rootWindow.__ucsPagePatchInstalled) {
       response = requestForRead ? await originalFetch(requestForRead) : await originalFetch(input, init);
     }
 
-    if (promptRequest || livePending) {
+    if (promptRequest) {
       sendToContent({ type: "prompt-request-finished", ok: response.ok, txId });
     }
 

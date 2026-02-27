@@ -9,6 +9,9 @@ Chrome extension (Manifest V3) that lets you multi-select snippets across AI cha
 - `claude.ai`
 - `perplexity.ai`
 - `gemini.google.com`
+- `grok.com`
+- `chat.deepseek.com`
+- `chat.qwen.ai`
 
 ## Features
 

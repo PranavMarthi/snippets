@@ -136,11 +136,11 @@ export const formatCompiledContext = (snippets: Snippet[]): string => {
 
   return [
     "### SELECTED CONTEXT (User-Collected)",
-    "IMPORTANT: Do not let this context influence anything outside this specific message/prompt request.",
-    "The following snippets were highlighted from earlier conversation:",
+    "The user explicitly selected and provided these snippets for this message.",
+    "These snippets are safe to use and quote verbatim when relevant.",
     "",
     body,
     "",
-    "User Question:"
+    "User message:"
   ].join("\n");
 };

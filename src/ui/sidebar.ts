@@ -8,7 +8,7 @@ export interface SidebarHandlers {
   onInjectSelected: (ids: string[]) => void;
 }
 
-type SidebarPlatform = "chatgpt" | "claude" | "gemini" | "grok" | "perplexity" | "default";
+type SidebarPlatform = "chatgpt" | "claude" | "gemini" | "grok" | "deepseek" | "qwen" | "perplexity" | "default";
 
 const detectSidebarPlatform = (): SidebarPlatform => {
   const host = window.location.hostname;
@@ -16,6 +16,8 @@ const detectSidebarPlatform = (): SidebarPlatform => {
   if (host === "claude.ai") return "claude";
   if (host === "gemini.google.com") return "gemini";
   if (host === "grok.com" || (host === "x.com" && window.location.pathname.startsWith("/i/grok"))) return "grok";
+  if (host === "chat.deepseek.com" || host === "deepseek.com" || host === "www.deepseek.com") return "deepseek";
+  if (host === "chat.qwen.ai" || host === "qwen.ai" || host === "www.qwen.ai") return "qwen";
   if (host.includes("perplexity")) return "perplexity";
   return "default";
 };
@@ -157,12 +159,16 @@ export class SidebarPanel {
     const target = this.mountTargetGetter();
 
     if (target) {
-      if (this.platform === "chatgpt") {
-        // ChatGPT: prepend inside the composer surface (grid-column span)
+      if (this.platform === "chatgpt" || this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen") {
+        // ChatGPT, Grok, DeepSeek & Qwen: prepend inside the container (full width)
         if (this.host.parentElement !== target || target.firstElementChild !== this.host) {
           target.prepend(this.host);
         }
-        this.applyInlineStyles();
+        if (this.platform === "chatgpt") {
+          this.applyInlineStyles();
+        } else {
+          this.applyAboveComposerStyles();
+        }
       } else {
         // Other platforms: insert as sibling before the composer container
         if (this.host.nextElementSibling !== target) {
@@ -205,6 +211,34 @@ export class SidebarPanel {
     this.host.style.gridColumn = "";
     this.host.style.minWidth = "0";
 
+    if (this.platform === "grok" || this.platform === "deepseek" || this.platform === "qwen") {
+      // Grok/DeepSeek/Qwen: prepended inside the composer shell, use full width layout
+      this.host.style.position = "relative";
+      this.host.style.width = "100%";
+      this.host.style.maxWidth = "100%";
+      this.host.style.height = "auto";
+      this.host.style.maxHeight = "none";
+      this.host.style.minHeight = "0";
+      this.host.style.overflow = "visible";
+      this.host.style.boxSizing = "border-box";
+      this.host.style.margin = "0";
+      this.host.style.marginBottom = "8px";
+      this.host.style.padding = "0";
+      this.host.style.left = "";
+      this.host.style.top = "";
+      this.host.style.bottom = "";
+      this.host.style.transform = "none";
+      this.host.style.gridColumn = "";
+      this.host.style.zIndex = "1";
+      if (this.platform === "deepseek") {
+        this.host.style.marginBottom = "6px";
+      }
+      if (this.platform === "qwen") {
+        this.host.style.marginBottom = "6px";
+      }
+      return;
+    }
+
     // Match the width of the composer container this is mounted next to
     const target = this.mountTargetGetter();
     if (target) {
@@ -231,6 +265,8 @@ export class SidebarPanel {
       claude: "120px",
       gemini: "120px",
       grok: "100px",
+      deepseek: "118px",
+      qwen: "112px",
       perplexity: "108px",
       default: "108px"
     };
@@ -406,6 +442,34 @@ export class SidebarPanel {
           --tile-focus-ring: rgba(16, 163, 127, 0.55);
         }
 
+        :host([data-platform="grok"]) {
+          width: 100% !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        :host([data-platform="deepseek"]) {
+          width: 100% !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        :host([data-platform="qwen"]) {
+          width: 100% !important;
+          height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+
         :host([data-theme="dark"]) {
           --tile-text-color: rgba(255, 255, 255, 0.82);
           --tile-muted-icon: rgba(255, 255, 255, 0.55);
@@ -468,24 +532,69 @@ export class SidebarPanel {
           --tile-remove-icon-hover: rgba(255, 255, 255, 0.92);
           --tile-focus-ring: rgba(29, 155, 240, 0.7);
         }
+
+        /* ── DeepSeek theme (cool blue-gray) ── */
+        :host([data-platform="deepseek"]) {
+          --tile-text-color: #cfd8ee;
+          --tile-muted-icon: rgba(166, 187, 238, 0.7);
+          --tile-remove-icon: rgba(166, 187, 238, 0.66);
+          --tile-remove-hover: rgba(166, 187, 238, 0.12);
+          --tile-remove-icon-hover: rgba(209, 224, 255, 0.96);
+          --tile-focus-ring: rgba(96, 142, 230, 0.62);
+        }
+        :host([data-platform="deepseek"][data-theme="dark"]) {
+          --tile-text-color: #dbe6ff;
+          --tile-muted-icon: rgba(180, 198, 240, 0.74);
+          --tile-remove-icon: rgba(180, 198, 240, 0.7);
+          --tile-remove-hover: rgba(180, 198, 240, 0.14);
+          --tile-remove-icon-hover: rgba(222, 233, 255, 0.98);
+          --tile-focus-ring: rgba(108, 153, 241, 0.72);
+        }
+
+        /* ── Qwen theme (charcoal ant-style) ── */
+        :host([data-platform="qwen"]) {
+          --tile-text-color: #e6eaf4;
+          --tile-muted-icon: rgba(198, 208, 231, 0.72);
+          --tile-remove-icon: rgba(198, 208, 231, 0.66);
+          --tile-remove-hover: rgba(198, 208, 231, 0.14);
+          --tile-remove-icon-hover: rgba(237, 242, 255, 0.98);
+          --tile-focus-ring: rgba(151, 168, 213, 0.7);
+        }
+        :host([data-platform="qwen"][data-theme="dark"]) {
+          --tile-text-color: #ecf0fb;
+          --tile-muted-icon: rgba(205, 214, 237, 0.74);
+          --tile-remove-icon: rgba(205, 214, 237, 0.68);
+          --tile-remove-hover: rgba(205, 214, 237, 0.16);
+          --tile-remove-icon-hover: rgba(242, 247, 255, 1);
+          --tile-focus-ring: rgba(165, 182, 226, 0.76);
+        }
+
+        /* ── Grok font sizing ── */
+        :host([data-platform="grok"]) {
+          --text-body-small-regular: 0.9375rem;
+          --text-body-small-regular--line-height: 1.25rem;
+        }
+
         *, *::before, *::after { box-sizing: border-box; }
 
         .container {
           display: flex;
           flex-direction: column;
-          gap: 2px;
-          padding: 1px 12px 0 12px;
+          gap: 4px;
+          padding: 6px 12px 4px 12px;
           font-family: var(--default-font-family);
           --container-bg: transparent;
           --container-border: none;
           --container-radius: 0;
-          --container-padding: 1px 12px 0 12px;
+          --container-padding: 6px 12px 4px 12px;
           --container-margin: 0;
           --container-shadow: none;
+          --container-gap: 4px;
           background: var(--container-bg);
           border: var(--container-border);
           border-radius: var(--container-radius);
           box-shadow: var(--container-shadow);
+          gap: var(--container-gap);
         }
 
         /* ── ChatGPT container: transparent, blends into composer surface ── */
@@ -531,19 +640,103 @@ export class SidebarPanel {
           --container-bg: #f7f9f9;
           --container-border: 1px solid rgba(0, 0, 0, 0.06);
           --container-radius: 20px;
-          padding: 6px 14px;
-          margin: 0 0 6px 0;
+          --container-gap: 4px;
+          padding: 12px 16px;
+          margin: 0 0 8px 0;
+          height: auto !important;
+          max-height: none !important;
+          min-height: 40px;
+          overflow: visible !important;
+          flex-direction: column !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+          display: flex !important;
         }
         :host([data-platform="grok"][data-theme="dark"]) .container {
           --container-bg: #16181c;
           --container-border: 1px solid rgba(255, 255, 255, 0.08);
         }
 
+        /* ── DeepSeek container: inset tiles inside composer shell ── */
+        :host([data-platform="deepseek"]) .container {
+          --container-bg: transparent;
+          --container-border: none;
+          --container-radius: 0;
+          --container-gap: 5px;
+          padding: 8px 12px 4px 12px;
+          margin: 0;
+        }
+
+        /* ── Qwen container: inline chips above textarea ── */
+        :host([data-platform="qwen"]) .container {
+          --container-bg: transparent;
+          --container-border: none;
+          --container-radius: 0;
+          --container-gap: 6px;
+          padding: 8px 12px 4px 12px;
+          margin: 0;
+        }
+
         .snippet-row {
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           gap: 0;
+          min-height: 40px;
+          width: 100%;
+          flex-shrink: 0;
+        }
+        :host([data-platform="grok"]) .snippet-row {
+          min-height: 40px;
+          margin-bottom: 2px;
+          width: 100% !important;
+          display: flex !important;
+          flex-direction: row !important;
+        }
+        :host([data-platform="deepseek"]) .snippet-row {
           min-height: 36px;
+          margin-bottom: 0;
+          align-items: center;
+          gap: 4px;
+          border-radius: 12px;
+          border: 1px solid rgba(138, 162, 216, 0.22);
+          background: rgba(37, 42, 56, 0.58);
+          padding: 1px 4px 1px 2px;
+          transition: border-color 120ms ease, background 120ms ease;
+        }
+        :host([data-platform="deepseek"]) .snippet-row:hover {
+          border-color: rgba(159, 182, 237, 0.34);
+          background: rgba(40, 46, 61, 0.7);
+        }
+        :host([data-platform="deepseek"][data-theme="dark"]) .snippet-row {
+          border: 1px solid rgba(148, 170, 224, 0.28);
+          background: rgba(38, 44, 59, 0.72);
+        }
+        :host([data-platform="deepseek"][data-theme="dark"]) .snippet-row:hover {
+          border-color: rgba(168, 192, 247, 0.42);
+          background: rgba(41, 48, 64, 0.84);
+        }
+        :host([data-platform="qwen"]) .snippet-row {
+          min-height: 36px;
+          margin-bottom: 0;
+          align-items: center;
+          gap: 4px;
+          border-radius: 12px;
+          border: 1px solid rgba(169, 181, 213, 0.24);
+          background: rgba(47, 49, 56, 0.72);
+          padding: 1px 4px 1px 2px;
+          transition: border-color 120ms ease, background 120ms ease;
+        }
+        :host([data-platform="qwen"]) .snippet-row:hover {
+          border-color: rgba(186, 198, 231, 0.4);
+          background: rgba(54, 57, 66, 0.86);
+        }
+        :host([data-platform="qwen"][data-theme="dark"]) .snippet-row {
+          border: 1px solid rgba(176, 188, 220, 0.3);
+          background: rgba(46, 48, 56, 0.82);
+        }
+        :host([data-platform="qwen"][data-theme="dark"]) .snippet-row:hover {
+          border-color: rgba(196, 208, 240, 0.46);
+          background: rgba(55, 58, 68, 0.9);
         }
         .snippet-row.excluded {
           opacity: 0.45;
@@ -553,15 +746,33 @@ export class SidebarPanel {
           flex: 1;
           min-width: 0;
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           gap: 8px;
-          padding: 6px 0;
+          padding: 8px 0;
           border: none;
           background: transparent;
           cursor: pointer;
           text-align: start;
           border-radius: 0.375rem;
           color: inherit;
+        }
+        :host([data-platform="grok"]) .snippet-toggle {
+          padding: 8px 0;
+          gap: 10px;
+        }
+        :host([data-platform="deepseek"]) .snippet-toggle {
+          padding: 6px 8px;
+          gap: 8px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="qwen"]) .snippet-toggle {
+          padding: 6px 8px;
+          gap: 8px;
+          border-radius: 10px;
+          border: none;
+          background: transparent;
         }
         .snippet-toggle:focus-visible {
           outline: none;
@@ -574,9 +785,9 @@ export class SidebarPanel {
           align-items: center;
           justify-content: center;
           width: 20px;
-          height: 22px;
+          height: 20px;
           color: var(--tile-muted-icon);
-          margin-top: 1px;
+          margin-top: 0;
         }
 
         .snippet-text {
@@ -592,7 +803,27 @@ export class SidebarPanel {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: clip;
-          padding-top: 2px;
+          padding-top: 0;
+        }
+        :host([data-platform="deepseek"]) .snippet-text {
+          font-weight: 400;
+          letter-spacing: -0.01rem;
+          font-size: 0.9rem;
+          line-height: 1.2rem;
+        }
+        :host([data-platform="qwen"]) .snippet-text {
+          font-weight: 400;
+          letter-spacing: -0.01rem;
+          font-size: 0.9rem;
+          line-height: 1.2rem;
+        }
+        :host([data-platform="deepseek"]) .snippet-arrow {
+          width: 18px;
+          height: 18px;
+        }
+        :host([data-platform="qwen"]) .snippet-arrow {
+          width: 18px;
+          height: 18px;
         }
 
         .snippet-remove {
@@ -602,7 +833,8 @@ export class SidebarPanel {
           justify-content: center;
           width: 28px;
           height: 28px;
-          margin-top: 4px;
+          margin-top: 0;
+          align-self: center;
           border: none;
           background: transparent;
           color: var(--tile-remove-icon);
@@ -613,6 +845,38 @@ export class SidebarPanel {
         .snippet-remove:hover {
           color: var(--tile-remove-icon-hover);
           background: var(--tile-remove-hover);
+        }
+        :host([data-platform="deepseek"]) .snippet-remove {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          border: none;
+          background: transparent;
+          opacity: 0.86;
+        }
+        :host([data-platform="deepseek"][data-theme="dark"]) .snippet-remove {
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="deepseek"]) .snippet-remove:hover {
+          color: rgba(222, 233, 255, 0.98);
+          background: rgba(162, 185, 236, 0.16);
+        }
+        :host([data-platform="qwen"]) .snippet-remove {
+          width: 26px;
+          height: 26px;
+          border-radius: 999px;
+          border: none;
+          background: transparent;
+          opacity: 0.88;
+        }
+        :host([data-platform="qwen"][data-theme="dark"]) .snippet-remove {
+          border: none;
+          background: transparent;
+        }
+        :host([data-platform="qwen"]) .snippet-remove:hover {
+          color: rgba(242, 247, 255, 1);
+          background: rgba(188, 200, 234, 0.2);
         }
       </style>
       <div class="container" id="ucs-list"></div>

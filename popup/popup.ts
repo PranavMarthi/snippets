@@ -28,7 +28,7 @@ chrome.runtime.sendMessage({ type: "UCS_SYNC_REQUEST" } satisfies RuntimeMessage
     return;
   }
   if (!response?.connected) {
-    statusEl.textContent = "Open ChatGPT, Claude, Gemini, or Perplexity.";
+    statusEl.textContent = "Open ChatGPT, Claude, Gemini, Grok, DeepSeek, Qwen, or Perplexity.";
     return;
   }
   statusEl.textContent = `Connected: ${response.adapter ?? "Unknown"}`;
