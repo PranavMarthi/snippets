@@ -97,6 +97,31 @@ const deriveConversationScope = (): string => {
     }
   }
 
+  if (hostname === "gemini.google.com") {
+    // Gemini conversation IDs appear in the path as /app/<id>
+    const appIndex = pathParts.indexOf("app");
+    if (appIndex >= 0 && pathParts[appIndex + 1]) {
+      return `gemini:${pathParts[appIndex + 1]}`;
+    }
+  }
+
+  if (hostname === "grok.com") {
+    // Grok conversation IDs appear in the path as /chat/<id> or similar
+    const chatIndex = pathParts.indexOf("chat");
+    if (chatIndex >= 0 && pathParts[chatIndex + 1]) {
+      return `grok:${pathParts[chatIndex + 1]}`;
+    }
+    // Also check for conversation path segments
+    if (pathParts.length >= 2) {
+      return `grok:${pathParts.join("/")}`;
+    }
+  }
+
+  if (hostname === "x.com" && pathname.startsWith("/i/grok")) {
+    // Grok embedded in X
+    return `grok-x:${pathname}${search}`;
+  }
+
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   return `${hostname}${normalizedPath}`;
 };

@@ -3,6 +3,7 @@ import { ChatGPTAdapter } from "./adapters/chatgptAdapter";
 import { ClaudeAdapter } from "./adapters/claudeAdapter";
 import { PerplexityAdapter } from "./adapters/perplexityAdapter";
 import { GeminiAdapter } from "./adapters/geminiAdapter";
+import { GrokAdapter } from "./adapters/grokAdapter";
 
 export class SiteAdapterManager {
   private adapters: AISiteAdapter[];
@@ -33,7 +34,8 @@ export const createDefaultAdapterManager = (): SiteAdapterManager => {
     new ChatGPTAdapter(),
     new ClaudeAdapter(),
     new PerplexityAdapter(),
-    new GeminiAdapter()
+    new GeminiAdapter(),
+    new GrokAdapter()
   ]);
   manager.detect();
   return manager;

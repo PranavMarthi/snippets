@@ -9,13 +9,15 @@ import { ChatGPTAdapter } from "./adapters/chatgptAdapter";
 import { ClaudeAdapter } from "./adapters/claudeAdapter";
 import { PerplexityAdapter } from "./adapters/perplexityAdapter";
 import { GeminiAdapter } from "./adapters/geminiAdapter";
+import { GrokAdapter } from "./adapters/grokAdapter";
 
 const contextEngine = new ContextStackEngine();
 const adapterManager = new SiteAdapterManager([
   new ChatGPTAdapter(),
   new ClaudeAdapter(),
   new PerplexityAdapter(),
-  new GeminiAdapter()
+  new GeminiAdapter(),
+  new GrokAdapter()
 ]);
 adapterManager.detect();
 
@@ -43,7 +45,19 @@ const isSelectionInInput = (selection: Selection): boolean => {
   const element = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement | null;
   if (!element) return true;
 
-  return Boolean(element.closest("input, textarea"));
+  // Only consider actual form input elements as "input" — not contenteditable divs
+  // which are used as chat editors on most AI platforms
+  const inputAncestor = element.closest("input, textarea");
+  if (!inputAncestor) return false;
+
+  // If the input/textarea is also the chat editor, don't suppress the bubble
+  const adapter = getAdapter();
+  const editor = adapter?.getEditorElement();
+  if (editor && (inputAncestor === editor || editor.contains(inputAncestor))) {
+    return true; // Selection IS in the chat editor input — suppress bubble
+  }
+
+  return true; // Selection is in some other input/textarea — suppress bubble
 };
 
 const getSelectionRect = (selection: Selection): DOMRect | null => {
@@ -110,6 +124,73 @@ const clearContextAfterSend = (): void => {
   void contextEngine.clear().then((next) => setSidebarState(next));
 };
 
+/**
+ * For non-ChatGPT platforms (Claude, Gemini, Grok, Perplexity):
+ * Inject context directly into the editor DOM before the send completes.
+ * Returns true if context was injected.
+ */
+const injectContextIntoEditorDOM = (): boolean => {
+  if (!sidebar.getIncludedIds().length) {
+    return false;
+  }
+
+  const compiledContext = getCompiledSelectedContext();
+  if (!compiledContext) {
+    return false;
+  }
+
+  const adapter = getAdapter();
+  if (!adapter) {
+    return false;
+  }
+
+  const editor = adapter.getEditorElement();
+  if (!editor) {
+    return false;
+  }
+
+  // Check if context is already injected (prevent duplicates)
+  const currentText = editor instanceof HTMLTextAreaElement
+    ? editor.value
+    : editor.textContent ?? "";
+  if (currentText.includes(CONTEXT_MARKER)) {
+    return true;
+  }
+
+  // For contenteditable elements, prepend context before existing content
+  if (editor instanceof HTMLTextAreaElement) {
+    const originalValue = editor.value;
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    if (nativeSet) {
+      nativeSet.call(editor, `${compiledContext}\n${originalValue}`);
+    } else {
+      editor.value = `${compiledContext}\n${originalValue}`;
+    }
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } else {
+    // contenteditable div — use execCommand for undo-stack compatibility
+    editor.focus();
+
+    // Move cursor to start
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(editor);
+    range.collapse(true); // collapse to start
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    // Insert context at start
+    document.execCommand("insertText", false, `${compiledContext}\n`);
+  }
+
+  // Schedule context clear after a short delay to let the send complete
+  window.setTimeout(() => {
+    void contextEngine.clear().then((next) => setSidebarState(next));
+  }, 300);
+
+  return true;
+};
+
 const dispatchPagePatchEvent = (detail: Omit<PagePatchEventDetail, "source" | "direction">): void => {
   document.dispatchEvent(
     new CustomEvent<PagePatchEventDetail>(PAGE_PATCH_EVENT, {
@@ -169,9 +250,10 @@ let lastStableSelectionAt = 0;
 
 const bubble = new ActionBubble({
   onAdd: async () => {
-    if (!latestSelectedText) return;
-    await addSelectionToContext(latestSelectedText);
-    bubble.hide();
+    const text = latestSelectedText || lastStableSelectionText;
+    if (!text) return;
+    await addSelectionToContext(text);
+    // Don't hide — let the user click "Add Context" again for the same selection
   }
 });
 
@@ -315,11 +397,17 @@ const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
     return null;
   }
 
+  // ChatGPT-specific selectors
   if (button.id === "composer-submit-button") {
     return button;
   }
 
   if (button.dataset.testid === "send-button") {
+    return button;
+  }
+
+  // Gemini: button.send-button class
+  if (button.classList.contains("send-button")) {
     return button;
   }
 
@@ -334,13 +422,44 @@ const findSubmitButton = (target: EventTarget | null): HTMLElement | null => {
       .filter(Boolean)
       .join(" ")
   );
+
+  // Generic send-button detection (works across platforms)
   const looksLikeSendControl =
     normalizedText.includes("send-button") ||
     normalizedText.includes("send prompt") ||
     normalizedText.includes("send message") ||
-    (normalizedText.includes("send") && (normalizedText.includes("prompt") || normalizedText.includes("message")));
+    normalizedText.includes("send reply") ||
+    (normalizedText.includes("send") && (normalizedText.includes("prompt") || normalizedText.includes("message") || normalizedText.includes("reply")));
   if (looksLikeSendControl) {
     return button;
+  }
+
+  // Claude: send button has aria-label containing "Send" or "Reply"
+  const ariaLabel = (button.getAttribute("aria-label") ?? "").toLowerCase();
+  if (ariaLabel === "send message" || ariaLabel === "send" || ariaLabel === "reply") {
+    return button;
+  }
+
+  // Gemini: send button typically has aria-label "Send message"
+  if (ariaLabel.includes("send message") || ariaLabel.includes("send prompt")) {
+    return button;
+  }
+
+  // Grok: look for submit-type buttons inside the chat form
+  if (button.getAttribute("type") === "submit") {
+    return button;
+  }
+
+  // Look for SVG-only send buttons (common pattern: button with only an SVG child, near the editor)
+  const hasSvgChild = button.querySelector("svg") !== null;
+  const hasMinimalText = (button.textContent ?? "").trim().length < 3;
+  const nearEditor = !!button.closest("form, [class*='composer'], [class*='input'], [class*='chat'], [class*='prompt']");
+  if (hasSvgChild && hasMinimalText && nearEditor) {
+    // Further check: is this near the bottom of the page (where chat inputs live)?
+    const rect = button.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight * 0.5) {
+      return button;
+    }
   }
 
   const composerForm = button.closest("form[data-type='unified-composer']");
@@ -626,7 +745,8 @@ document.addEventListener(
     const activeSelection = window.getSelection()?.toString().trim() ?? "";
     const isFresh = Date.now() - lastStableSelectionAt < 10000;
     const text = pendingNativeAskSelection || activeSelection || latestSelectedText || (isFresh ? lastStableSelectionText : "");
-    pendingNativeAskSelection = "";
+    // Don't clear pendingNativeAskSelection — keep it alive for repeated clicks
+    // on the same highlighted text. It gets naturally replaced on next pointerdown.
     if (text.trim().length < 3) {
       return;
     }
@@ -641,7 +761,8 @@ document.addEventListener(
 document.addEventListener(
   "click",
   (event) => {
-    if (!isChatGPTActive()) {
+    const adapter = getAdapter();
+    if (!adapter) {
       return;
     }
 
@@ -650,14 +771,21 @@ document.addEventListener(
       return;
     }
 
-    beginSelectedContextSendTransaction();
+    if (isChatGPTActive()) {
+      // ChatGPT: use fetch interception via page bridge
+      beginSelectedContextSendTransaction();
+    } else {
+      // Claude, Gemini, Grok, Perplexity: inject context into editor DOM
+      injectContextIntoEditorDOM();
+    }
   },
   true
 );
 document.addEventListener(
   "submit",
   (event) => {
-    if (!isChatGPTActive()) {
+    const adapter = getAdapter();
+    if (!adapter) {
       return;
     }
 
@@ -666,18 +794,23 @@ document.addEventListener(
       return;
     }
 
-    if (!target.matches("form[data-type='unified-composer']")) {
-      return;
+    if (isChatGPTActive()) {
+      if (!target.matches("form[data-type='unified-composer']")) {
+        return;
+      }
+      beginSelectedContextSendTransaction();
+    } else {
+      // Non-ChatGPT: inject context into editor DOM on form submit
+      injectContextIntoEditorDOM();
     }
-
-    beginSelectedContextSendTransaction();
   },
   true
 );
 document.addEventListener(
   "keydown",
   (event) => {
-    if (!isChatGPTActive()) {
+    const adapter = getAdapter();
+    if (!adapter) {
       return;
     }
 
@@ -689,14 +822,17 @@ document.addEventListener(
       return;
     }
 
-    const adapter = getAdapter();
-    const editor = adapter?.getEditorElement();
+    const editor = adapter.getEditorElement();
     const target = event.target;
     if (!(target instanceof Node) || !editor || (target !== editor && !editor.contains(target))) {
       return;
     }
 
-    beginSelectedContextSendTransaction();
+    if (isChatGPTActive()) {
+      beginSelectedContextSendTransaction();
+    } else {
+      injectContextIntoEditorDOM();
+    }
   },
   true
 );
@@ -732,19 +868,23 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage) => {
-  if (message.type === "UCS_COMMAND") {
-    if (message.command === "inject-all-context") {
-      void compileAndInjectAll(sidebar.getIncludedIds());
+try {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage) => {
+    if (message.type === "UCS_COMMAND") {
+      if (message.command === "inject-all-context") {
+        void compileAndInjectAll(sidebar.getIncludedIds());
+      }
+      if (message.command === "clear-context-stack") {
+        void contextEngine.clear().then((next) => setSidebarState(next));
+      }
+      if (message.command === "toggle-sidebar") {
+        sidebar.toggle();
+      }
     }
-    if (message.command === "clear-context-stack") {
-      void contextEngine.clear().then((next) => setSidebarState(next));
-    }
-    if (message.command === "toggle-sidebar") {
-      sidebar.toggle();
-    }
-  }
-});
+  });
+} catch {
+  // Extension context may be invalidated during navigation
+}
 
 let mutationGuard = false;
 let activeStorageKey = storageManager.getActiveStorageKey();
@@ -759,50 +899,66 @@ const refreshScopedStateIfNeeded = (): void => {
   void contextEngine.getState().then((next) => setSidebarState(next));
 };
 
-const init = async () => {
-  const adapter = getAdapter();
-
-  if (isChatGPTActive()) {
-    installChatGPTInvisibleContextPatch();
+const safeSendStatus = (adapterName: string | null): void => {
+  try {
+    chrome.runtime.sendMessage({
+      type: "UCS_STATUS",
+      payload: { connected: true, adapter: adapterName }
+    } satisfies RuntimeMessage);
+  } catch {
+    // Extension context may be invalidated or background not ready — safe to ignore
   }
+};
 
-  // Wire up the mount target getter now that all UI elements are constructed
-  sidebar.setMountTargetGetter(() => adapter?.getComposerMountTarget() ?? null);
+const init = async () => {
+  try {
+    const adapter = getAdapter();
+    console.log("[UCS] init — adapter:", adapter?.name ?? "none", "url:", window.location.href);
 
-  const state = await contextEngine.getState();
-  setSidebarState(state);
-
-  storageManager.onStoreChange((next) => {
-    setSidebarState(next);
-  });
-
-  adapter?.observeDOMChanges(() => {
-    if (mutationGuard) return;
-    mutationGuard = true;
-    try {
-      refreshScopedStateIfNeeded();
-
-      sidebar.refreshPosition();
-      chrome.runtime.sendMessage({
-        type: "UCS_STATUS",
-        payload: { connected: true, adapter: adapter.name }
-      } satisfies RuntimeMessage);
-    } finally {
-      // Release on next microtask so any DOM changes we caused are ignored
-      queueMicrotask(() => { mutationGuard = false; });
+    if (isChatGPTActive()) {
+      installChatGPTInvisibleContextPatch();
     }
-  });
 
-  chrome.runtime.sendMessage({
-    type: "UCS_STATUS",
-    payload: { connected: true, adapter: adapter?.name ?? null }
-  } satisfies RuntimeMessage);
+    // Wire up the mount target getter now that all UI elements are constructed
+    sidebar.setMountTargetGetter(() => adapter?.getComposerMountTarget() ?? null);
 
-  window.addEventListener("popstate", refreshScopedStateIfNeeded);
-  window.addEventListener("hashchange", refreshScopedStateIfNeeded);
+    try {
+      const state = await contextEngine.getState();
+      setSidebarState(state);
+    } catch (err) {
+      console.warn("[UCS] Failed to load initial state:", err);
+    }
 
-  // Chat apps often switch conversations through pushState/replaceState without full reload.
-  window.setInterval(refreshScopedStateIfNeeded, 500);
+    try {
+      storageManager.onStoreChange((next) => {
+        setSidebarState(next);
+      });
+    } catch (err) {
+      console.warn("[UCS] Failed to bind storage listener:", err);
+    }
+
+    adapter?.observeDOMChanges(() => {
+      if (mutationGuard) return;
+      mutationGuard = true;
+      try {
+        refreshScopedStateIfNeeded();
+
+        sidebar.refreshPosition();
+        safeSendStatus(adapter.name);
+      } finally {
+        queueMicrotask(() => { mutationGuard = false; });
+      }
+    });
+
+    safeSendStatus(adapter?.name ?? null);
+
+    window.addEventListener("popstate", refreshScopedStateIfNeeded);
+    window.addEventListener("hashchange", refreshScopedStateIfNeeded);
+
+    window.setInterval(refreshScopedStateIfNeeded, 500);
+  } catch (err) {
+    console.error("[UCS] init failed:", err);
+  }
 };
 
 void init();

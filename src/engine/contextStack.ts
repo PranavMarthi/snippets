@@ -32,6 +32,11 @@ export class ContextStackEngine {
       return { ok: false, reason: "Selection too large", state };
     }
 
+    const isDuplicate = state.snippets.some((existing) => existing.text === text);
+    if (isDuplicate) {
+      return { ok: false, reason: "Duplicate snippet", state };
+    }
+
     const snippet: Snippet = {
       id: generateId(),
       text,
